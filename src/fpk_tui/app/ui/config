@@ -1,0 +1,13 @@
+{
+  ".url": {
+    "mimocode-tui.Application": {
+      "title": "MiMo Code TUI",
+      "icon": "images/icon_{0}.png",
+      "type": "iframe",
+      "protocol": "http",
+      "port": "19281",
+      "url": "/",
+      "allUsers": true
+    }
+  }
+}

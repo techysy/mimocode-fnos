@@ -1,0 +1,108 @@
+#!/bin/bash
+set -uo pipefail
+
+APP_NAME="${TRIM_APPNAME:-mimocode-tui}"
+APP_DIR="${TRIM_APPDEST:-/var/apps/${APP_NAME}}"
+DATA_DIR="${TRIM_PKGVAR:-/vol4/@appdata/${APP_NAME}}"
+
+PORT="${TRIM_SERVICE_PORT:-19281}"
+LOG="${DATA_DIR}/mimocode-tui.log"
+PID_FILE="${DATA_DIR}/mimocode-tui.pid"
+
+# TUI 的工作目录（用户的代码仓库）。mimocode 拒绝把 / 当作项目目录。
+# 默认隔离在本应用数据目录下的 workspace，避免与 mimo-code（Web UI 版）冲突。
+WORKSPACE="${MIMOCODE_WORKSPACE:-${DATA_DIR}/workspace}"
+
+MIMO_BIN="${APP_DIR}/bin/mimo"
+TTYD_BIN="${APP_DIR}/bin/ttyd"
+
+start() {
+    if [ ! -x "${MIMO_BIN}" ] || [ ! -x "${TTYD_BIN}" ]; then
+        echo "ERROR: mimo or ttyd binary missing under ${APP_DIR}/bin" >&2
+        return 1
+    fi
+
+    mkdir -p "${DATA_DIR}" "${WORKSPACE}" 2>/dev/null
+
+    if [ -f "${PID_FILE}" ] && kill -0 "$(cat "${PID_FILE}")" 2>/dev/null; then
+        echo "already running (pid $(cat "${PID_FILE}"))"
+        return 0
+    fi
+
+    pkill -f "ttyd -p ${PORT}" 2>/dev/null || true
+    sleep 1
+
+    # 数据隔离
+    export MIMOCODE_HOME="${DATA_DIR}"
+    export TERM="xterm-256color"
+
+    echo "=== $(date '+%F %T') starting TUI on 0.0.0.0:${PORT} (workspace=${WORKSPACE}) ===" >> "${LOG}" 2>&1
+
+    cd "${WORKSPACE}" || {
+        echo "ERROR: cannot cd to workspace ${WORKSPACE}" >&2
+        return 1
+    }
+
+    # ttyd 承载官方 TUI，暴露为网页终端
+    nohup "${TTYD_BIN}" \
+        -p "${PORT}" \
+        -i "0.0.0.0" \
+        -W \
+        -t "fontSize=14" \
+        -t "scrollback=10000" \
+        -t "titleFixed=true" \
+        -I "${APP_DIR}/web/index.html" \
+        -- "${MIMO_BIN}" >> "${LOG}" 2>&1 < /dev/null &
+
+    PID=$!
+    echo "${PID}" > "${PID_FILE}"
+
+    for i in $(seq 1 20); do
+        if ! kill -0 "${PID}" 2>/dev/null; then
+            echo "ERROR: ttyd exited during startup; see ${LOG}" >&2
+            tail -n 20 "${LOG}" >&2 2>/dev/null
+            rm -f "${PID_FILE}"
+            return 1
+        fi
+        CODE="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/" 2>/dev/null)"
+        if [ "${CODE}" = "200" ]; then
+            echo "started (pid ${PID}, port ${PORT})"
+            return 0
+        fi
+        sleep 1
+    done
+
+    echo "ERROR: health check timed out (last HTTP status: ${CODE:-none}); see ${LOG}" >&2
+    return 1
+}
+
+stop() {
+    if [ -f "${PID_FILE}" ]; then
+        kill "$(cat "${PID_FILE}")" 2>/dev/null || true
+        rm -f "${PID_FILE}"
+    fi
+    pkill -f "ttyd -p ${PORT}" 2>/dev/null || true
+    echo "stopped"
+}
+
+status() {
+    if [ -f "${PID_FILE}" ] && kill -0 "$(cat "${PID_FILE}")" 2>/dev/null; then
+        echo "running (pid $(cat "${PID_FILE}"))"
+        return 0
+    fi
+    CODE="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/" 2>/dev/null)"
+    if [ "${CODE}" = "200" ]; then
+        echo "running (port ${PORT})"
+        return 0
+    fi
+    echo "stopped"
+    return 1
+}
+
+case "${1:-start}" in
+    start) start ;;
+    stop) stop ;;
+    status) status ;;
+    restart) stop; sleep 1; start ;;
+    *) echo "Usage: $0 {start|stop|status|restart}"; exit 1 ;;
+esac

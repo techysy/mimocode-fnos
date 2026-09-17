@@ -1,0 +1,14 @@
+appname               = mimocode-tui
+version               = 0.1.14
+display_name          = MiMo Code TUI
+desc                  = 小米 MiMo Code 终端界面（TUI）飞牛版 — 内置官方 v0.1.14 引擎，通过 Web 终端直接使用原版 TUI
+arch                  = x86_64
+source                = thirdparty
+maintainer            = fnOS Community Port
+maintainer_url        = https://github.com/XiaomiMiMo/MiMo-Code
+distributor           = fnOS Community Port
+distributor_url       = https://github.com/XiaomiMiMo/MiMo-Code
+desktop_uidir         = ui
+desktop_applaunchname = mimocode-tui.Application
+service_port          = 19281
+ctl_stop              = true

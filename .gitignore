@@ -1,0 +1,8 @@
+# 构建产物
+*.fpk
+dist/
+src/fpk_tui/app/bin/
+
+# 系统
+.DS_Store
+Thumbs.db

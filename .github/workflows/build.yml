@@ -1,0 +1,44 @@
+name: Build fnOS Package
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      upstream_version:
+        description: "上游 MiMo Code 版本（如 0.1.14）"
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 确定版本
+        id: ver
+        run: |
+          V="${{ github.event.inputs.upstream_version }}"
+          [ -z "$V" ] && V="${GITHUB_REF_NAME#v}"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: 构建
+        env:
+          UPSTREAM_VERSION: ${{ steps.ver.outputs.version }}
+        run: ./scripts/build.sh
+
+      - name: 生成校验和
+        run: |
+          cd dist
+          sha256sum *.fpk > SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            dist/*.fpk
+            dist/SHA256SUMS
