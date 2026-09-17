@@ -8,6 +8,10 @@
 
 - [English README](./README.en.md)
 
+<p align="center">
+  <img src="docs/images/mimocode-tui-screenshot.jpg" alt="MiMo Code TUI" width="800">
+</p>
+
 把 **小米 MiMo Code** 的官方 TUI 带到飞牛 NAS（fnOS）上，直接在飞牛桌面点开就能用。
 
 > 📦 当前版本：**v0.1.14** — 内置官方 MiMo Code v0.1.14 引擎
