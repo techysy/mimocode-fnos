@@ -92,6 +92,26 @@ jobs:
           tar -xzOf "$OUT" app.tgz | tar -tz | grep -q "^bin/mimo$" || { echo "::error::缺 mimo"; exit 1; }
           tar -xzOf "$OUT" app.tgz | tar -tz | grep -q "^bin/ttyd$" || { echo "::error::缺 ttyd"; exit 1; }
 
+          echo "── 生命周期脚本校验 ──"
+          for f in main install_init install_callback uninstall_init uninstall_callback upgrade_init upgrade_callback config_init config_callback _lib.sh; do
+            tar -tzf "$OUT" | grep -q "^cmd/$f$" || { echo "::error::缺 cmd/$f"; exit 1; }
+          done
+          # 提取并做 bash 语法检查
+          mkdir -p /tmp/ci-cmd && tar -xzf "$OUT" -C /tmp/ci-cmd cmd
+          for f in /tmp/ci-cmd/cmd/*; do
+            bash -n "$f" || { echo "::error::语法错误: $f"; exit 1; }
+          done
+          echo "  ✅ 生命周期脚本齐全且语法正确"
+
+          echo "── 硬编码路径校验（代码中不应出现 /vol4，注释允许）──"
+          HARDCODED=$(grep -rn "/vol4" /tmp/ci-cmd/cmd/ 2>/dev/null | grep -vE ":[0-9]+: *#" || true)
+          if [ -n "$HARDCODED" ]; then
+            echo "$HARDCODED"
+            echo "::error::cmd 脚本代码中出现硬编码卷路径 /vol4"
+            exit 1
+          fi
+          echo "  ✅ 代码无硬编码卷路径"
+
           echo "── manifest 版本校验 ──"
           PKG_VER=$(tar -xzOf "$OUT" manifest | grep '^version' | sed 's/.*= *//' | tr -d '[:space:]')
           [ "$PKG_VER" = "${{ steps.ver.outputs.version }}" ] || {
