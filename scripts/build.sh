@@ -75,6 +75,15 @@ echo "✓ platform = ${PLATFORM}"
 
 # --- 打包确认 ---
 echo "📦 即将打包：mimocode-tui v${UPSTREAM_VERSION} (${PLATFORM})"
+
+# --- 页面脚本语法校验 ---
+# app/web/index.html 由 ttyd 官方页面字符串替换而来。替换若破坏压缩 JS，
+# 浏览器会 SyntaxError 导致整页白屏，而 HTTP / WebSocket 全正常，极难排查。
+if [ -f "$ROOT/app/web/index.html" ]; then
+    node "$ROOT/scripts/check-web-syntax.js" "$ROOT/app/web/index.html" \
+        || { echo "ERROR: 页面脚本语法校验失败" >&2; exit 1; }
+fi
+
 if [ "${BUILD_AUTO:-0}" != "1" ]; then
     read -r -p "确认打包? [y/N] " ans
     [[ "$ans" =~ ^[Yy]$ ]] || { echo "已取消"; exit 1; }

@@ -181,6 +181,13 @@ jobs:
           HC=$(grep -rn "/vol4" /tmp/ci-cmd/cmd/ 2>/dev/null | grep -vE ":[0-9]+: *#" || true)
           [ -z "$HC" ] || { echo "$HC"; echo "::error::代码含硬编码 /vol4"; exit 1; }
 
+          echo "── 页面脚本语法（白屏防护）──"
+          # app/web/index.html 由 ttyd 官方页面字符串替换而来。
+          # 替换若破坏压缩 JS，浏览器会 SyntaxError 导致整页白屏，
+          # 而 HTTP / WebSocket 全部正常，极难排查。此处强制静态校验。
+          mkdir -p /tmp/ci-web && tar -xzf /tmp/app.tgz -C /tmp/ci-web web
+          node scripts/check-web-syntax.js /tmp/ci-web/web/index.html
+
           echo "── 架构校验（ELF e_machine，小端序）──"
           mkdir -p /tmp/ci-bin && tar -xzf /tmp/app.tgz -C /tmp/ci-bin bin/mimo
           MACHINE=$(python3 -c "h=open('/tmp/ci-bin/bin/mimo','rb').read(20); print('0x%04x' % (h[18]|(h[19]<<8)) if len(h)>=20 else 'unknown')")

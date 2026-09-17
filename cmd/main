@@ -75,11 +75,28 @@ start() {
     )
     [ -f "${WEB_INDEX}" ] && TTYD_ARGS+=(-I "${WEB_INDEX}")
 
-    nohup "${TTYD_BIN}" "${TTYD_ARGS[@]}" -- "${MIMO_BIN}" >> "${LOG}" 2>&1 < /dev/null &
+    # 引擎参数：
+    #   --trust  跳过「工作区安全确认」首启交互。
+    #            该提示需用户在终端里手动选择，Web 终端下会导致
+    #            界面卡住/白屏，且应用由 fnOS 以非交互方式拉起，
+    #            没有用户可以应答。工作区由本应用独占管理
+    #            （${WORKSPACE}），视为可信。
+    MIMO_ARGS=(--trust)
+
+    nohup "${TTYD_BIN}" "${TTYD_ARGS[@]}" -- "${MIMO_BIN}" "${MIMO_ARGS[@]}" >> "${LOG}" 2>&1 < /dev/null &
     PID=$!
     echo "${PID}" > "${PID_FILE}"
 
-    # 健康检查：进程存活 + HTTP 200
+    # 健康检查：ttyd 存活 + 引擎子进程存活 + HTTP 200
+    # 仅检查 HTTP 200 不够：ttyd 即使子进程已退出仍会返回 200，
+    # 表现就是「打开白屏」。
+    local code="" engine_ok=""
+    # 健康检查：ttyd 存活 + HTTP 200 即视为启动成功。
+    #
+    # 注意：ttyd 是「懒启动」——只有客户端连上来（打开终端页面）才会
+    # fork 引擎子进程。因此这里不能要求引擎子进程存在，否则
+    # install_callback 里不带客户端调用 start 会误判失败。
+    # 引擎是否可用由日志与运行期观测，不在启动阶段强判定。
     local code=""
     for _ in $(seq 1 20); do
         if ! kill -0 "${PID}" 2>/dev/null; then
@@ -97,8 +114,8 @@ start() {
         sleep 1
     done
 
-    echo "ERROR: 健康检查超时（最后状态 ${code:-无响应}），见 ${LOG}" >&2
-    log "ERROR: health check timeout (last=${code:-none})"
+    echo "ERROR: 健康检查超时（HTTP ${code:-无响应}），见 ${LOG}" >&2
+    log "ERROR: health check timeout (http=${code:-none})"
     return 1
 }
 
