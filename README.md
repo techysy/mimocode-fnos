@@ -12,6 +12,14 @@
 
 > 📦 当前版本：**v0.1.14** — 内置官方 MiMo Code v0.1.14 引擎
 
+| | |
+| :--- | :--- |
+| **开发者** | [XiaomiMiMo](https://github.com/XiaomiMiMo/MiMo-Code)（小米 MiMo Code 官方） |
+| **发布者** | [techysy](https://github.com/techysy/mimocode-fnos)（fnOS 打包适配） |
+
+> 本项目仅为**飞牛 NAS 的打包与适配**，引擎为小米官方原版二进制，未做任何修改。
+> 上游项目：<https://github.com/XiaomiMiMo/MiMo-Code>
+
 ---
 
 ## 📥 下载

@@ -2,6 +2,14 @@
 
 Bring **Xiaomi MiMo Code**'s official TUI to your fnOS NAS — click the desktop icon and start using it.
 
+| | |
+| :--- | :--- |
+| **Developer** | [XiaomiMiMo](https://github.com/XiaomiMiMo/MiMo-Code) (MiMo Code by Xiaomi) |
+| **Publisher** | [techysy](https://github.com/techysy/mimocode-fnos) (fnOS packaging) |
+
+> This project only **packages and adapts** MiMo Code for fnOS. The engine is Xiaomi's unmodified official binary.
+> Upstream: <https://github.com/XiaomiMiMo/MiMo-Code>
+
 [![Release](https://img.shields.io/github/v/release/techysy/mimocode-fnos.svg?label=Latest&color=blue)](https://github.com/techysy/mimocode-fnos/releases)
 [![Downloads](https://img.shields.io/github/downloads/techysy/mimocode-fnos/total?label=Downloads&color=green)](https://github.com/techysy/mimocode-fnos/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
