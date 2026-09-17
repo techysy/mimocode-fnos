@@ -14,6 +14,26 @@
 
 ---
 
+## 📥 下载
+
+**➡️ [前往 GitHub Releases 下载最新版](https://github.com/techysy/mimocode-fnos/releases/latest)**
+
+按你的 NAS 架构选择：
+
+| 架构 | 文件 | 适用设备 |
+| :--- | :--- | :--- |
+| **x86 / x86_64** | [`mimocode-tui-0.1.14-x86.fpk`](https://github.com/techysy/mimocode-fnos/releases/download/v0.1.14/mimocode-tui-0.1.14-x86.fpk) | 绝大多数飞牛 NAS（Intel / AMD） |
+| **ARM / aarch64** | [`mimocode-tui-0.1.14-arm.fpk`](https://github.com/techysy/mimocode-fnos/releases/download/v0.1.14/mimocode-tui-0.1.14-arm.fpk) | ARM 架构设备（如 R5S、树莓派类） |
+
+**不确定用哪个？** 在 NAS 上执行 `uname -m`：
+
+- 输出 `x86_64` → 选 **x86**
+- 输出 `aarch64` / `arm64` → 选 **arm**
+
+安装包均已通过 CI 校验（ELF 架构、`platform` 字段、完整性），并附 `SHA256SUMS-{x86,arm}` 校验和。
+
+---
+
 ## 作者 / Author
 
 洋芋 (YangYu) · 🐂 [fnOS 应用系列](https://github.com/stars/techysy/lists/fnos-app)
@@ -47,7 +67,7 @@
 
 ### 方式一：应用中心安装
 
-1. 下载 [`mimocode-tui-0.1.14-x86_64.fpk`](https://github.com/techysy/mimocode-fnos/releases/latest)
+1. 下载对应架构的 `.fpk`（见上方 [下载](#-下载)）
 2. 飞牛 → **应用中心** → 右上角 **手动安装** → 选择 `.fpk` 文件
 
 ### 方式二：下载后手动安装

@@ -12,6 +12,26 @@ Bring **Xiaomi MiMo Code**'s official TUI to your fnOS NAS — click the desktop
 
 ---
 
+## 📥 Download
+
+**➡️ [Get the latest release on GitHub](https://github.com/techysy/mimocode-fnos/releases/latest)**
+
+Pick the package matching your NAS CPU architecture:
+
+| Arch | File | Devices |
+| :--- | :--- | :--- |
+| **x86 / x86_64** | [`mimocode-tui-0.1.14-x86.fpk`](https://github.com/techysy/mimocode-fnos/releases/download/v0.1.14/mimocode-tui-0.1.14-x86.fpk) | Most fnOS NAS units (Intel / AMD) |
+| **ARM / aarch64** | [`mimocode-tui-0.1.14-arm.fpk`](https://github.com/techysy/mimocode-fnos/releases/download/v0.1.14/mimocode-tui-0.1.14-arm.fpk) | ARM devices (e.g. R5S, Raspberry Pi class) |
+
+**Not sure which one?** Run `uname -m` on your NAS:
+
+- `x86_64` → choose **x86**
+- `aarch64` / `arm64` → choose **arm**
+
+Every package is CI-verified (ELF arch, `platform` field, integrity) and ships with `SHA256SUMS-{x86,arm}`.
+
+---
+
 ## What is this
 
 Xiaomi's [MiMo Code](https://github.com/XiaomiMiMo/MiMo-Code) focuses its development on the **TUI (terminal interface)** and engine core. The Web and Desktop surfaces are explicitly marked as unmaintained upstream.
@@ -40,7 +60,7 @@ This project packages the **official TUI** as an fnOS application:
 
 ### Via App Center
 
-1. Download [`mimocode-tui-0.1.14-x86_64.fpk`](https://github.com/techysy/mimocode-fnos/releases/latest)
+1. Download the `.fpk` for your architecture (see [Download](#-download) above)
 2. fnOS → **App Center** → **Manual Install** (top right) → select the `.fpk`
 
 ### Manual
