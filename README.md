@@ -1,8 +1,22 @@
 # MiMo Code TUI for fnOS
 
+[![Release](https://img.shields.io/github/v/release/techysy/mimocode-fnos.svg?label=Latest&color=blue)](https://github.com/techysy/mimocode-fnos/releases)
+[![Downloads](https://img.shields.io/github/downloads/techysy/mimocode-fnos/total?label=Downloads&color=green)](https://github.com/techysy/mimocode-fnos/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![fnOS](https://img.shields.io/badge/fnOS-1.1.31xx-blue)](https://developer.fnnas.com/docs/guide)
+[![Upstream](https://img.shields.io/github/v/release/XiaomiMiMo/MiMo-Code.svg?label=Upstream&color=purple)](https://github.com/XiaomiMiMo/MiMo-Code/releases)
+
+- [English README](./README.en.md)
+
 把 **小米 MiMo Code** 的官方 TUI 带到飞牛 NAS（fnOS）上，直接在飞牛桌面点开就能用。
 
 > 📦 当前版本：**v0.1.14** — 内置官方 MiMo Code v0.1.14 引擎
+
+---
+
+## 作者 / Author
+
+洋芋 (YangYu) · 🐂 [fnOS 应用系列](https://github.com/stars/techysy/lists/fnos-app)
 
 ---
 
@@ -33,17 +47,18 @@
 
 ### 方式一：应用中心安装
 
-1. 下载 [`mimocode-tui-0.1.14-x86_64.fpk`](../../releases/latest)
+1. 下载 [`mimocode-tui-0.1.14-x86_64.fpk`](https://github.com/techysy/mimocode-fnos/releases/latest)
 2. 飞牛 → **应用中心** → 右上角 **手动安装** → 选择 `.fpk` 文件
 
-### 方式二：命令行
+### 方式二：下载后手动安装
 
-```bash
-# 上传 fpk 到飞牛后
-fnpack install -f mimocode-tui-0.1.14-x86_64.fpk
-```
+1. 把 `.fpk` 文件上传到 NAS 任意目录
+2. 飞牛 → **应用中心** → 右上角 **手动安装** → 选择该 `.fpk`
+3. 在安装向导中阅读并勾选同意协议 → 完成安装
 
 安装后从飞牛桌面点击 **MiMo Code TUI** 图标即可。
+
+> ⚠️ 安装需知：应用的 `appname` 为 `mimocode-tui`，与 Web UI 版（`mimocode`）互不冲突，可同时安装。
 
 ## 使用
 
@@ -64,32 +79,78 @@ export MIMOCODE_WORKSPACE=/vol1/1000/你的项目
 ## 目录结构
 
 ```
-fpk_tui/
+mimocode-fnos/
 ├── manifest              # 飞牛应用清单（版本号跟随官方）
+├── VERSION               # 版本号
+├── CHANGELOG.md          # 更新日志
+├── TROUBLESHOOTING.md    # 问题排查
 ├── cmd/
 │   └── main              # 生命周期脚本（start/stop/status/restart）
 ├── config/
 │   ├── privilege         # 独立运行用户 mimocode-tui
 │   └── resource          # 数据卷权限声明
+├── wizard/
+│   └── install           # 安装时协议授权向导
 ├── app/
-│   ├── bin/
-│   │   ├── mimo          # 官方引擎二进制（构建时注入）
-│   │   └── ttyd          # Web 终端网关
+│   ├── bin/              # mimo（官方二进制）+ ttyd（构建时获取）
 │   ├── ui/               # 飞牛桌面图标与入口配置
-│   └── web/
-│       └── index.html    # 品牌化 ttyd 页面（含剪贴板修复）
+│   └── web/index.html    # 品牌化 ttyd 页面（含剪贴板修复）
+├── docs/patches/         # 上游适配补丁
+├── scripts/build.sh      # 一键构建
 └── ICON.PNG / ICON_256.PNG
 ```
 
+## 端口与路径
+
+| 项目 | 值 |
+| :--- | :--- |
+| 端口 | `19281` |
+| 数据目录 | `/vol4/@appdata/mimocode-tui/` |
+| 工作目录 | `/vol4/@appdata/mimocode-tui/workspace/` |
+| 安装目录 | `/vol4/@appcenter/mimocode-tui/` |
+| 日志 | `/vol4/@appdata/mimocode-tui/mimocode-tui.log` |
+
 ## 自行构建
 
+### 一键构建
+
 ```bash
-# 1. 获取官方源码（v0.1.14）
+# 从官方源码全量构建（拉源码 → 打补丁 → 装依赖 → 构建引擎 → 下载 ttyd → 打包）
+bash scripts/build.sh --from-source
+
+# 已有 app/bin/mimo 时，仅重新打包
+bash scripts/build.sh
+```
+
+环境变量：
+
+| 变量 | 说明 | 默认 |
+| :--- | :--- | :--- |
+| `UPSTREAM_VERSION` | 上游 MiMo Code 版本 | 读 `VERSION` 文件 |
+| `ARCH` | 目标架构（`x86_64` / `arm64`） | `x86_64` |
+| `BUILD_AUTO=1` | 跳过交互确认（CI 用） | 关闭 |
+| `WORK` | 源码构建临时目录 | `/tmp/mimocode-build` |
+
+脚本会依次：同步版本号 → 检查/下载依赖 → `fnpack build` → 输出到 `dist/` + 生成 `SHA256SUMS` → 本地环境自动交付到 `/vol1/1000/fnOS App/fpk/mimocode/`（旧包归档 `oldfpk/`）。
+
+### 版本号同步
+
+版本号**单一来源**为 `VERSION` 文件：
+
+```bash
+bash scripts/sync-version.sh            # VERSION -> manifest
+bash scripts/sync-version.sh 0.1.15     # 指定版本并同步
+```
+
+### 手动构建
+
+```bash
+# 1. 获取官方源码
 git clone --depth 1 --branch v0.1.14 https://github.com/XiaomiMiMo/MiMo-Code.git
 cd MiMo-Code
 
 # 2. 应用适配补丁
-git apply ../src/patches/fnos-adaptation.patch
+git apply ../docs/patches/fnos-adaptation.patch
 
 # 3. 安装依赖
 bun install --ignore-scripts --backend=copyfile
@@ -98,22 +159,45 @@ bun install --ignore-scripts --backend=copyfile
 cd packages/opencode
 MIMOCODE_CHANNEL=local MIMOCODE_VERSION=local bun run script/build.ts --single --skip-install
 
-# 5. 组装 fpk
-cp dist/mimocode-linux-x64/bin/mimo <repo>/src/fpk_tui/app/bin/mimo
-# 下载 ttyd 静态二进制
-curl -L -o <repo>/src/fpk_tui/app/bin/ttyd \
+# 5. 组装并打包
+cp dist/mimocode-linux-x64/bin/mimo <repo>/app/bin/mimo
+curl -L -o <repo>/app/bin/ttyd \
   https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64
-chmod +x <repo>/src/fpk_tui/app/bin/*
-
-# 6. 打包
-cd <repo>/src/fpk_tui && fnpack build
+chmod +x <repo>/app/bin/*
+cd <repo> && fnpack build
 ```
 
-> 需要 `fnpack` ≥ 1.2.4 与 `bun` ≥ 1.3.0
+> 需要 `fnpack` ≥ 1.2.4、`bun` ≥ 1.3.0、`git`
+
+## 自动构建（GitHub Actions）
+
+[`.github/workflows/build.yml`](.github/workflows/build.yml) 提供自动打包：
+
+| 触发方式 | 行为 |
+| :--- | :--- |
+| **推送 tag**（如 `v0.1.14`） | 自动构建 → 校验 → 上传 artifact → **发布 Release** |
+| **手动触发**（Actions → Run workflow） | 可指定上游版本与架构，构建后上传 artifact |
+
+CI 流程：
+
+1. 安装 Bun + fnpack
+2. 运行 `scripts/build.sh --from-source`（拉官方源码 + 打补丁 + 构建 + 打包）
+3. **产物校验**：检查包内 `manifest`、`wizard/install`、`LICENSE`、`bin/mimo`、`bin/ttyd`，并校验版本号一致
+4. 上传 artifact（保留 30 天）
+5. tag 触发时自动创建 Release 并附上 `.fpk` 与 `SHA256SUMS`
+
+发布新版本：
+
+```bash
+bash scripts/sync-version.sh 0.1.15   # 更新版本号
+git commit -am "release: v0.1.15"
+git tag v0.1.15
+git push origin master --tags          # CI 自动构建并发 Release
+```
 
 ## 对上游的改动
 
-本项目仅对官方源码做**最小适配**（见 [`src/patches/`](src/patches/)）：
+本项目仅对官方源码做**最小适配**（见 [`docs/patches/`](docs/patches/)）：
 
 | 文件 | 改动 | 原因 |
 | :--- | :--- | :--- |
@@ -145,7 +229,19 @@ cd <repo>/src/fpk_tui && fnpack build
 | **网络安全** | 默认监听 19281，建议仅在内网使用，勿暴露公网 |
 | **开源许可** | MIT 协议发布，保留小米原始版权声明 |
 
-该协议由 [`wizard/install`](src/fpk_tui/wizard/install) 定义，使用 fnOS 安装向导的 `checkbox` 必选类型实现（`required: true`，不勾选则无法安装）。
+该协议由 [`wizard/install`](wizard/install) 定义，使用 fnOS 安装向导的 `checkbox` 必选类型实现（`required: true`，不勾选则无法安装）。
+
+## ⚠️ 安全须知
+
+本应用在 `19281` 端口提供**完整的 shell 执行能力**，默认绑定 `0.0.0.0`。
+
+- **请勿直接暴露到公网**
+- 远程访问请走飞牛 FN Connect 或带认证的反向代理
+- 可加访问口令（在 `cmd/main` 中给 ttyd 加 `-c 用户名:密码`）
+- 可限制为本机（把 `-i "0.0.0.0"` 改为 `-i "127.0.0.1"`）
+- 可设为只读（去掉 `-W` 参数）
+
+详见 [TROUBLESHOOTING.md](TROUBLESHOOTING.md)。
 
 ## 免责声明
 

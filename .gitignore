@@ -1,7 +1,10 @@
-# 构建产物
+# 构建产物（二进制过大，不入库；由 scripts/build.sh 自动获取）
 *.fpk
 dist/
-src/fpk_tui/app/bin/
+
+# 二进制不入库，仅保留占位文件
+app/bin/*
+!app/bin/.gitkeep
 
 # 系统
 .DS_Store

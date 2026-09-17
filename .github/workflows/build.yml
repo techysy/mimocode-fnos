@@ -6,39 +6,131 @@ on:
   workflow_dispatch:
     inputs:
       upstream_version:
-        description: "上游 MiMo Code 版本（如 0.1.14）"
+        description: "上游 MiMo Code 版本（如 0.1.14，留空用 VERSION 文件）"
+        required: false
+        default: ""
+      arch:
+        description: "目标架构"
         required: true
+        default: "x86_64"
+        type: choice
+        options: ["x86_64", "arm64"]
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
 
-      - name: 确定版本
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 确定版本号
         id: ver
         run: |
           V="${{ github.event.inputs.upstream_version }}"
-          [ -z "$V" ] && V="${GITHUB_REF_NAME#v}"
+          if [ -z "$V" ]; then
+            V="${GITHUB_REF_NAME#v}"
+          fi
+          if [ -z "$V" ]; then
+            V="$(tr -d '[:space:]' < VERSION)"
+          fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "📌 构建版本：$V"
 
-      - uses: oven-sh/setup-bun@v2
+      - name: 显示运行环境
+        run: |
+          uname -m
+          ldd --version | head -1
+
+      - name: 安装 Bun
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      - name: 构建
+      - name: 安装 fnpack
+        run: |
+          set -e
+          URL=$(curl -fsSL "https://api.github.com/repos/fnnas/fnpack/releases/latest" \
+                | grep -oE '"browser_download_url": *"[^"]*' | sed 's/.*"//' | grep -iE "linux.*(amd64|x86_64)" | head -1 || true)
+          if [ -n "$URL" ]; then
+            curl -fL -o /usr/local/bin/fnpack "$URL"
+            chmod +x /usr/local/bin/fnpack
+          fi
+          if command -v fnpack >/dev/null 2>&1; then
+            fnpack --version || true
+          else
+            echo "::warning::fnpack 安装失败，本次仅构建引擎二进制，跳过打包"
+            echo "FNpack_MISSING=1" >> "$GITHUB_ENV"
+          fi
+
+      - name: 从源码构建并打包
         env:
           UPSTREAM_VERSION: ${{ steps.ver.outputs.version }}
-        run: ./scripts/build.sh
+          ARCH: ${{ github.event.inputs.arch || 'x86_64' }}
+          BUILD_AUTO: "1"
+        run: bash scripts/build.sh --from-source
 
-      - name: 生成校验和
+      - name: 校验产物
+        if: env.FNpack_MISSING != '1'
         run: |
-          cd dist
-          sha256sum *.fpk > SHA256SUMS
+          set -e
+          ARCH="${{ github.event.inputs.arch || 'x86_64' }}"
+          OUT="dist/mimocode-tui-${{ steps.ver.outputs.version }}-${ARCH}.fpk"
+          ls -lh "$OUT"
 
-      - uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
+          echo "── 包结构校验 ──"
+          tar -tzf "$OUT" | grep -q "^manifest$"        || { echo "::error::缺 manifest";  exit 1; }
+          tar -tzf "$OUT" | grep -q "^wizard/install$"  || { echo "::error::缺协议向导"; exit 1; }
+          tar -tzf "$OUT" | grep -q "^LICENSE$"         || { echo "::error::缺 LICENSE"; exit 1; }
+
+          echo "── 二进制校验 ──"
+          tar -xzOf "$OUT" app.tgz | tar -tz | grep -q "^bin/mimo$" || { echo "::error::缺 mimo"; exit 1; }
+          tar -xzOf "$OUT" app.tgz | tar -tz | grep -q "^bin/ttyd$" || { echo "::error::缺 ttyd"; exit 1; }
+
+          echo "── manifest 版本校验 ──"
+          PKG_VER=$(tar -xzOf "$OUT" manifest | grep '^version' | sed 's/.*= *//' | tr -d '[:space:]')
+          [ "$PKG_VER" = "${{ steps.ver.outputs.version }}" ] || {
+            echo "::error::版本不一致：包内 $PKG_VER ≠ 期望 ${{ steps.ver.outputs.version }}"
+            exit 1
+          }
+          echo "✅ 全部校验通过（版本 $PKG_VER）"
+          cat dist/SHA256SUMS
+
+      - name: 上传构建产物
+        if: env.FNpack_MISSING != '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mimocode-tui-${{ steps.ver.outputs.version }}-${{ github.event.inputs.arch || 'x86_64' }}
+          path: |
+            dist/*.fpk
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: 发布 Release
+        if: startsWith(github.ref, 'refs/tags/') && env.FNpack_MISSING != '1'
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/*.fpk
             dist/SHA256SUMS
+          generate_release_notes: true
+          body: |
+            ## MiMo Code TUI ${{ github.ref_name }} for fnOS
+
+            内置官方 MiMo Code **v${{ steps.ver.outputs.version }}** 引擎。
+
+            ### 安装
+
+            1. 下载下方 `.fpk` 文件
+            2. 飞牛 → 应用中心 → 手动安装 → 选择对应架构的包
+            3. 阅读并同意安装协议向导
+
+            ### 架构
+
+            本次构建：`${{ github.event.inputs.arch || 'x86_64' }}`
