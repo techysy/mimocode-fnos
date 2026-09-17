@@ -42,8 +42,11 @@ jobs:
 
       - name: 显示运行环境
         run: |
+          set -eu
           uname -m
-          ldd --version | head -1
+          # 不用管道，避免 ldd 收到 SIGPIPE 报 Broken pipe
+          ldd --version > /tmp/ldd.txt 2>&1 || true
+          sed -n '1p' /tmp/ldd.txt
 
       # 不指定版本：setup-bun 会读仓库 package.json 的 packageManager（bun@1.3.14），
       # 与上游构建脚本要求的版本保持一致
@@ -149,20 +152,27 @@ jobs:
           set -euo pipefail
           cd "$GITHUB_WORKSPACE"
           OUT="dist/mimocode-tui-${{ steps.ver.outputs.version }}-${{ matrix.arch }}.fpk"
+          ARCH="${{ matrix.arch }}"
+
+          # 先落盘再比对，避免 tar | grep -q 触发 SIGPIPE(141)
+          tar -tzf "$OUT" > /tmp/pkg-list.txt
+          tar -xzOf "$OUT" app.tgz > /tmp/app.tgz
+          tar -tzf /tmp/app.tgz > /tmp/app-list.txt
 
           echo "── 包结构 ──"
-          tar -tzf "$OUT" | grep -q "^manifest$"       || { echo "::error::缺 manifest";  exit 1; }
-          tar -tzf "$OUT" | grep -q "^wizard/install$" || { echo "::error::缺协议向导"; exit 1; }
-          tar -tzf "$OUT" | grep -q "^LICENSE$"        || { echo "::error::缺 LICENSE"; exit 1; }
+          for f in manifest wizard/install LICENSE; do
+            grep -qx "$f" /tmp/pkg-list.txt || { echo "::error::缺 $f"; exit 1; }
+          done
 
           echo "── 二进制 ──"
-          tar -xzOf "$OUT" app.tgz | tar -tz | grep -q "^bin/mimo$" || { echo "::error::缺 mimo"; exit 1; }
-          tar -xzOf "$OUT" app.tgz | tar -tz | grep -q "^bin/ttyd$" || { echo "::error::缺 ttyd"; exit 1; }
+          for f in bin/mimo bin/ttyd; do
+            grep -qx "$f" /tmp/app-list.txt || { echo "::error::缺 $f"; exit 1; }
+          done
 
           echo "── 生命周期脚本 ──"
           for f in main install_init install_callback uninstall_init uninstall_callback \
                    upgrade_init upgrade_callback config_init config_callback _lib.sh; do
-            tar -tzf "$OUT" | grep -q "^cmd/$f$" || { echo "::error::缺 cmd/$f"; exit 1; }
+            grep -qx "cmd/$f" /tmp/pkg-list.txt || { echo "::error::缺 cmd/$f"; exit 1; }
           done
           mkdir -p /tmp/ci-cmd && tar -xzf "$OUT" -C /tmp/ci-cmd cmd
           for f in /tmp/ci-cmd/cmd/*; do bash -n "$f" || { echo "::error::语法错误 $f"; exit 1; }; done
@@ -171,34 +181,30 @@ jobs:
           HC=$(grep -rn "/vol4" /tmp/ci-cmd/cmd/ 2>/dev/null | grep -vE ":[0-9]+: *#" || true)
           [ -z "$HC" ] || { echo "$HC"; echo "::error::代码含硬编码 /vol4"; exit 1; }
 
-          echo "── 架构校验（ELF e_machine）──"
-          mkdir -p /tmp/ci-bin && tar -xzOf "$OUT" app.tgz | tar -xz -C /tmp/ci-bin bin/mimo
-          # ELF e_machine 为小端序（字节 18 低位，字节 19 高位）
+          echo "── 架构校验（ELF e_machine，小端序）──"
+          mkdir -p /tmp/ci-bin && tar -xzf /tmp/app.tgz -C /tmp/ci-bin bin/mimo
           MACHINE=$(python3 -c "h=open('/tmp/ci-bin/bin/mimo','rb').read(20); print('0x%04x' % (h[18]|(h[19]<<8)) if len(h)>=20 else 'unknown')")
           echo "  e_machine = $MACHINE"
-          if [ "${{ matrix.arch }}" = "arm" ]; then
+          if [ "$ARCH" = "arm" ]; then
             [ "$MACHINE" = "0x00b7" ] || { echo "::error::期望 ARM64(0x00b7)，实为 $MACHINE"; exit 1; }
           else
             [ "$MACHINE" = "0x003e" ] || { echo "::error::期望 x86_64(0x003e)，实为 $MACHINE"; exit 1; }
           fi
 
-          echo "── platform 字段校验（fnOS 只接受 x86/arm/loongarch/risc-v/all）──"
-          PKG_PLATFORM=$(tar -xzOf "$OUT" manifest | grep '^platform' | sed 's/.*= *//' | tr -d '[:space:]')
+          echo "── platform 字段 ──"
+          tar -xzOf "$OUT" manifest > /tmp/pkg-manifest.txt
+          PKG_PLATFORM=$(grep '^platform' /tmp/pkg-manifest.txt | sed 's/.*= *//' | tr -d '[:space:]')
           echo "  platform = '${PKG_PLATFORM}'"
-          case "${{ matrix.arch }}" in
-            arm)   EXPECT_PLATFORM="arm" ;;
-            x86|*) EXPECT_PLATFORM="x86" ;;
-          esac
+          if [ "$ARCH" = "arm" ]; then EXPECT_PLATFORM="arm"; else EXPECT_PLATFORM="x86"; fi
           [ "$PKG_PLATFORM" = "$EXPECT_PLATFORM" ] || {
-            echo "::error::platform 字段为 '$PKG_PLATFORM'，期望 '$EXPECT_PLATFORM'（空值说明 manifest 用了错误的 arch 字段）"
-            exit 1; }
+            echo "::error::platform 为 '$PKG_PLATFORM'，期望 '$EXPECT_PLATFORM'"; exit 1; }
 
           echo "── 版本一致性 ──"
-          PKG_VER=$(tar -xzOf "$OUT" manifest | grep '^version' | sed 's/.*= *//' | tr -d '[:space:]')
+          PKG_VER=$(grep '^version' /tmp/pkg-manifest.txt | sed 's/.*= *//' | tr -d '[:space:]')
           [ "$PKG_VER" = "${{ steps.ver.outputs.version }}" ] || {
             echo "::error::版本不一致：包内 $PKG_VER ≠ ${{ steps.ver.outputs.version }}"; exit 1; }
 
-          echo "✅ 校验通过（v$PKG_VER / ${{ matrix.arch }}）"
+          echo "✅ 校验通过（v$PKG_VER / $ARCH）"
 
       - name: 生成校验和
         run: |
