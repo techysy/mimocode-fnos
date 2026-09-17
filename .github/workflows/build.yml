@@ -1,46 +1,50 @@
-name: Build fnOS Package
+name: Build MiMo Code TUI fpk
 
 on:
   push:
-    tags: ["v*"]
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       upstream_version:
-        description: "上游 MiMo Code 版本（如 0.1.14，留空用 VERSION 文件）"
+        description: "上游 MiMo Code 版本（留空用 VERSION 文件）"
         required: false
         default: ""
       arch:
-        description: "目标架构"
+        description: "目标架构（all = 同时构建 x86 + arm）"
         required: true
-        default: "x86_64"
+        default: "all"
         type: choice
-        options: ["x86_64", "arm64"]
+        options: ["all", "x86", "arm"]
 
-concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: true
+permissions:
+  contents: write
 
 jobs:
-  build:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
+  build-fpk:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.arch != 'all' && fromJSON(format('["{0}"]', github.event.inputs.arch)) || fromJSON('["x86", "arm"]') }}
+    # arm 用原生 ARM runner，避免交叉编译
+    runs-on: ${{ matrix.arch == 'arm' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 120
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: 确定版本号
         id: ver
         run: |
           V="${{ github.event.inputs.upstream_version }}"
-          if [ -z "$V" ]; then
+          if [ -z "$V" ] && [[ "${GITHUB_REF_NAME}" == v* ]]; then
             V="${GITHUB_REF_NAME#v}"
           fi
           if [ -z "$V" ]; then
             V="$(tr -d '[:space:]' < VERSION)"
           fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
-          echo "📌 构建版本：$V"
+          echo "📌 版本：$V / 架构：${{ matrix.arch }}"
 
       - name: 显示运行环境
         run: |
@@ -52,105 +56,189 @@ jobs:
         with:
           bun-version: latest
 
-      - name: 安装 fnpack
+      - name: 下载 fnpack（官方源 + SHA256 校验）
+        env:
+          FNPACK_VERSION: "1.2.1"
         run: |
-          set -e
-          URL=$(curl -fsSL "https://api.github.com/repos/fnnas/fnpack/releases/latest" \
-                | grep -oE '"browser_download_url": *"[^"]*' | sed 's/.*"//' | grep -iE "linux.*(amd64|x86_64)" | head -1 || true)
-          if [ -n "$URL" ]; then
-            curl -fL -o /usr/local/bin/fnpack "$URL"
-            chmod +x /usr/local/bin/fnpack
-          fi
-          if command -v fnpack >/dev/null 2>&1; then
-            fnpack --version || true
+          set -euo pipefail
+          if [ "${{ matrix.arch }}" = "arm" ]; then
+            FNPACK_BIN="fnpack-${FNPACK_VERSION}-linux-arm64"
+            FNPACK_SHA256="aad9e16b101267d30017f39ab969e3c085fbce209716f8bd3b1e167eaf15e0cf"
           else
-            echo "::warning::fnpack 安装失败，本次仅构建引擎二进制，跳过打包"
-            echo "FNpack_MISSING=1" >> "$GITHUB_ENV"
+            FNPACK_BIN="fnpack-${FNPACK_VERSION}-linux-amd64"
+            FNPACK_SHA256="72d2a4095da676b64510b023731a227b369d80f8079bc45ff8a2f802ec0480c1"
           fi
+          curl -fsSL -o /usr/local/bin/fnpack "https://static2.fnnas.com/fnpack/${FNPACK_BIN}"
+          echo "${FNPACK_SHA256}  /usr/local/bin/fnpack" | sha256sum -c -
+          chmod +x /usr/local/bin/fnpack
+          fnpack --help | head -3
 
-      - name: 从源码构建并打包
+      - name: 从源码构建引擎
         env:
           UPSTREAM_VERSION: ${{ steps.ver.outputs.version }}
-          ARCH: ${{ github.event.inputs.arch || 'x86_64' }}
-          BUILD_AUTO: "1"
-        run: bash scripts/build.sh --from-source
+        run: |
+          set -euo pipefail
+          WORK="$RUNNER_TEMP/mimocode-src"
+          git clone --depth 1 --branch "v${UPSTREAM_VERSION}" \
+            https://github.com/XiaomiMiMo/MiMo-Code.git "$WORK"
+          cd "$WORK"
+          git apply "$GITHUB_WORKSPACE/docs/patches/fnos-adaptation.patch"
+          bun install --ignore-scripts --backend=copyfile
+          cd packages/opencode
+          MIMOCODE_CHANNEL=local MIMOCODE_VERSION=local \
+            bun run script/build.ts --single --skip-install
+
+          if [ "${{ matrix.arch }}" = "arm" ]; then TARGET="mimocode-linux-arm64"; else TARGET="mimocode-linux-x64"; fi
+          mkdir -p "$GITHUB_WORKSPACE/app/bin"
+          cp "dist/${TARGET}/bin/mimo" "$GITHUB_WORKSPACE/app/bin/mimo"
+          ls -lh "$GITHUB_WORKSPACE/app/bin/mimo"
+
+      - name: 下载 ttyd
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.arch }}" = "arm" ]; then TTYD="ttyd.aarch64"; else TTYD="ttyd.x86_64"; fi
+          curl -fsSL -o "$GITHUB_WORKSPACE/app/bin/ttyd" \
+            "https://github.com/tsl0922/ttyd/releases/download/1.7.7/${TTYD}"
+          chmod +x "$GITHUB_WORKSPACE/app/bin/ttyd"
+          file "$GITHUB_WORKSPACE/app/bin/ttyd" || true
+
+      - name: 设置 manifest platform
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          if grep -qE '^platform[[:space:]]*=' manifest; then
+            sed -i "s/^platform[[:space:]]*=.*/platform               = ${{ matrix.arch }}/" manifest
+          else
+            echo "platform               = ${{ matrix.arch }}" >> manifest
+          fi
+          bash scripts/sync-version.sh "${{ steps.ver.outputs.version }}"
+          grep -E '^(platform|appname|version|service_port|ctl_stop)[[:space:]]*=' manifest
+
+      - name: 清理符号链接
+        run: |
+          find "$GITHUB_WORKSPACE" -type l -not -path '*/.git/*' -delete 2>/dev/null || true
+          echo "剩余符号链接: $(find "$GITHUB_WORKSPACE" -type l -not -path '*/.git/*' | wc -l)"
+
+      - name: 构建 fpk
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          rm -f ./*.fpk
+          fnpack build -d .
+          VERSION="${{ steps.ver.outputs.version }}"
+          OUT="mimocode-tui-${VERSION}-${{ matrix.arch }}.fpk"
+          mv mimocode-tui.fpk "$OUT"
+          mkdir -p dist && mv "$OUT" dist/
+          ls -lh "dist/$OUT"
 
       - name: 校验产物
-        if: env.FNpack_MISSING != '1'
         run: |
-          set -e
-          ARCH="${{ github.event.inputs.arch || 'x86_64' }}"
-          OUT="dist/mimocode-tui-${{ steps.ver.outputs.version }}-${ARCH}.fpk"
-          ls -lh "$OUT"
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          OUT="dist/mimocode-tui-${{ steps.ver.outputs.version }}-${{ matrix.arch }}.fpk"
 
-          echo "── 包结构校验 ──"
-          tar -tzf "$OUT" | grep -q "^manifest$"        || { echo "::error::缺 manifest";  exit 1; }
-          tar -tzf "$OUT" | grep -q "^wizard/install$"  || { echo "::error::缺协议向导"; exit 1; }
-          tar -tzf "$OUT" | grep -q "^LICENSE$"         || { echo "::error::缺 LICENSE"; exit 1; }
+          echo "── 包结构 ──"
+          tar -tzf "$OUT" | grep -q "^manifest$"       || { echo "::error::缺 manifest";  exit 1; }
+          tar -tzf "$OUT" | grep -q "^wizard/install$" || { echo "::error::缺协议向导"; exit 1; }
+          tar -tzf "$OUT" | grep -q "^LICENSE$"        || { echo "::error::缺 LICENSE"; exit 1; }
 
-          echo "── 二进制校验 ──"
+          echo "── 二进制 ──"
           tar -xzOf "$OUT" app.tgz | tar -tz | grep -q "^bin/mimo$" || { echo "::error::缺 mimo"; exit 1; }
           tar -xzOf "$OUT" app.tgz | tar -tz | grep -q "^bin/ttyd$" || { echo "::error::缺 ttyd"; exit 1; }
 
-          echo "── 生命周期脚本校验 ──"
-          for f in main install_init install_callback uninstall_init uninstall_callback upgrade_init upgrade_callback config_init config_callback _lib.sh; do
+          echo "── 生命周期脚本 ──"
+          for f in main install_init install_callback uninstall_init uninstall_callback \
+                   upgrade_init upgrade_callback config_init config_callback _lib.sh; do
             tar -tzf "$OUT" | grep -q "^cmd/$f$" || { echo "::error::缺 cmd/$f"; exit 1; }
           done
-          # 提取并做 bash 语法检查
           mkdir -p /tmp/ci-cmd && tar -xzf "$OUT" -C /tmp/ci-cmd cmd
-          for f in /tmp/ci-cmd/cmd/*; do
-            bash -n "$f" || { echo "::error::语法错误: $f"; exit 1; }
-          done
-          echo "  ✅ 生命周期脚本齐全且语法正确"
+          for f in /tmp/ci-cmd/cmd/*; do bash -n "$f" || { echo "::error::语法错误 $f"; exit 1; }; done
 
-          echo "── 硬编码路径校验（代码中不应出现 /vol4，注释允许）──"
-          HARDCODED=$(grep -rn "/vol4" /tmp/ci-cmd/cmd/ 2>/dev/null | grep -vE ":[0-9]+: *#" || true)
-          if [ -n "$HARDCODED" ]; then
-            echo "$HARDCODED"
-            echo "::error::cmd 脚本代码中出现硬编码卷路径 /vol4"
-            exit 1
+          echo "── 无硬编码卷路径 ──"
+          HC=$(grep -rn "/vol4" /tmp/ci-cmd/cmd/ 2>/dev/null | grep -vE ":[0-9]+: *#" || true)
+          [ -z "$HC" ] || { echo "$HC"; echo "::error::代码含硬编码 /vol4"; exit 1; }
+
+          echo "── 架构校验（ELF e_machine）──"
+          mkdir -p /tmp/ci-bin && tar -xzOf "$OUT" app.tgz | tar -xz -C /tmp/ci-bin bin/mimo
+          # ELF e_machine 为小端序（字节 18 低位，字节 19 高位）
+          MACHINE=$(python3 -c "h=open('/tmp/ci-bin/bin/mimo','rb').read(20); print('0x%04x' % (h[18]|(h[19]<<8)) if len(h)>=20 else 'unknown')")
+          echo "  e_machine = $MACHINE"
+          if [ "${{ matrix.arch }}" = "arm" ]; then
+            [ "$MACHINE" = "0x00b7" ] || { echo "::error::期望 ARM64(0x00b7)，实为 $MACHINE"; exit 1; }
+          else
+            [ "$MACHINE" = "0x003e" ] || { echo "::error::期望 x86_64(0x003e)，实为 $MACHINE"; exit 1; }
           fi
-          echo "  ✅ 代码无硬编码卷路径"
 
-          echo "── manifest 版本校验 ──"
+          echo "── platform 字段校验（fnOS 只接受 x86/arm/loongarch/risc-v/all）──"
+          PKG_PLATFORM=$(tar -xzOf "$OUT" manifest | grep '^platform' | sed 's/.*= *//' | tr -d '[:space:]')
+          echo "  platform = '${PKG_PLATFORM}'"
+          case "${{ matrix.arch }}" in
+            arm)   EXPECT_PLATFORM="arm" ;;
+            x86|*) EXPECT_PLATFORM="x86" ;;
+          esac
+          [ "$PKG_PLATFORM" = "$EXPECT_PLATFORM" ] || {
+            echo "::error::platform 字段为 '$PKG_PLATFORM'，期望 '$EXPECT_PLATFORM'（空值说明 manifest 用了错误的 arch 字段）"
+            exit 1; }
+
+          echo "── 版本一致性 ──"
           PKG_VER=$(tar -xzOf "$OUT" manifest | grep '^version' | sed 's/.*= *//' | tr -d '[:space:]')
           [ "$PKG_VER" = "${{ steps.ver.outputs.version }}" ] || {
-            echo "::error::版本不一致：包内 $PKG_VER ≠ 期望 ${{ steps.ver.outputs.version }}"
-            exit 1
-          }
-          echo "✅ 全部校验通过（版本 $PKG_VER）"
-          cat dist/SHA256SUMS
+            echo "::error::版本不一致：包内 $PKG_VER ≠ ${{ steps.ver.outputs.version }}"; exit 1; }
 
-      - name: 上传构建产物
-        if: env.FNpack_MISSING != '1'
+          echo "✅ 校验通过（v$PKG_VER / ${{ matrix.arch }}）"
+
+      - name: 生成校验和
+        run: |
+          cd "$GITHUB_WORKSPACE/dist"
+          sha256sum "mimocode-tui-${{ steps.ver.outputs.version }}-${{ matrix.arch }}.fpk" \
+            > "SHA256SUMS-${{ matrix.arch }}"
+          cat "SHA256SUMS-${{ matrix.arch }}"
+
+      - name: 上传 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mimocode-tui-${{ steps.ver.outputs.version }}-${{ github.event.inputs.arch || 'x86_64' }}
+          name: mimocode-tui-fpk-${{ matrix.arch }}-${{ github.sha }}
           path: |
             dist/*.fpk
-            dist/SHA256SUMS
+            dist/SHA256SUMS-*
           if-no-files-found: error
           retention-days: 30
 
-      - name: 发布 Release
-        if: startsWith(github.ref, 'refs/tags/') && env.FNpack_MISSING != '1'
+  release:
+    needs: build-fpk
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: 下载全部 fpk
+        uses: actions/download-artifact@v4
+        with:
+          path: fpk-assets
+          pattern: mimocode-tui-fpk-*
+          merge-multiple: true
+
+      # 先确保 release 存在且带标题——否则首个 attach 会用裸 tag 名创建它。
+      # 已存在时不动（notes 手工维护，不覆盖）。
+      - name: 确保 Release 存在
+        run: |
+          gh release view "${GITHUB_REF_NAME}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "${GITHUB_REF_NAME}" --repo "$GITHUB_REPOSITORY" \
+              --title "MiMo Code TUI ${GITHUB_REF_NAME}" \
+              --notes "Release notes pending — see [CHANGELOG.md](https://github.com/techysy/mimocode-fnos/blob/master/CHANGELOG.md)."
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: 上传到 Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/*.fpk
-            dist/SHA256SUMS
-          generate_release_notes: true
-          body: |
-            ## MiMo Code TUI ${{ github.ref_name }} for fnOS
+            fpk-assets/*.fpk
+            fpk-assets/SHA256SUMS-*
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-            内置官方 MiMo Code **v${{ steps.ver.outputs.version }}** 引擎。
-
-            ### 安装
-
-            1. 下载下方 `.fpk` 文件
-            2. 飞牛 → 应用中心 → 手动安装 → 选择对应架构的包
-            3. 阅读并同意安装协议向导
-
-            ### 架构
-
-            本次构建：`${{ github.event.inputs.arch || 'x86_64' }}`
+      - name: 汇总
+        run: |
+          echo "## ✅ MiMo Code TUI fpk 构建完成" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          ls -lh fpk-assets/ >> "$GITHUB_STEP_SUMMARY"
