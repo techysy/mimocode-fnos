@@ -152,28 +152,38 @@ Requirements: `fnpack` ≥ 1.2.4, `bun` ≥ 1.3.0, `git`.
 
 ## Automatic Build (GitHub Actions)
 
-[`.github/workflows/build.yml`](.github/workflows/build.yml) builds automatically:
+[`.github/workflows/build.yml`](.github/workflows/build.yml) builds **both x86 and ARM**:
 
 | Trigger | Behavior |
 | :--- | :--- |
-| **Tag push** (e.g. `v0.1.14`) | Build → verify → upload artifact → **publish Release** |
-| **Manual** (Actions → Run workflow) | Choose upstream version and arch, uploads artifact |
+| **Tag push** (e.g. `v0.1.14`) | Build x86 + arm → verify → upload artifact → **publish Release** |
+| **Manual** (Actions → Run workflow) | Choose arch (all / x86 / arm) and upstream version |
 
-CI pipeline:
+Pipeline:
 
-1. Install Bun + fnpack
-2. Run `scripts/build.sh --from-source`
-3. **Verify artifact**: checks `manifest`, `wizard/install`, `LICENSE`, `bin/mimo`, `bin/ttyd`, and version consistency
-4. Upload artifact (30-day retention)
-5. On tag push, create a Release with the `.fpk` and `SHA256SUMS`
+1. **Matrix build**: `x86` on `ubuntu-24.04`, `arm` on native `ubuntu-24.04-arm` (no cross-compilation)
+2. **Install fnpack**: downloaded from the official mirror with SHA256 verification
+3. **Build engine**: clone upstream → apply patch → `bun install` → build target-arch binary → fetch matching ttyd
+4. **Set platform**: writes `manifest`'s `platform` (x86 / arm)
+5. **Package**: remove symlinks, then `fnpack build`
+6. **Verify artifact** (fails the build on any error): package layout, binaries, all 10 `cmd/` lifecycle scripts (`bash -n`), no hardcoded volume paths, valid `platform`, ELF arch match, version consistency
+7. **Release**: never overwrites an existing Release body (manual notes are preserved)
 
-Release a new version:
+### Release a new version
 
 ```bash
 bash scripts/sync-version.sh 0.1.15
 git commit -am "release: v0.1.15"
 git tag v0.1.15
-git push origin master --tags    # CI builds and publishes automatically
+git push origin master --tags    # CI builds both arches and publishes
+```
+
+### Artifact naming
+
+```
+mimocode-tui-0.1.15-x86.fpk
+mimocode-tui-0.1.15-arm.fpk
+SHA256SUMS-x86 / SHA256SUMS-arm
 ```
 
 ## Upstream Changes

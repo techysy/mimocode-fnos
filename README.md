@@ -171,28 +171,48 @@ cd <repo> && fnpack build
 
 ## 自动构建（GitHub Actions）
 
-[`.github/workflows/build.yml`](.github/workflows/build.yml) 提供自动打包：
+[`.github/workflows/build.yml`](.github/workflows/build.yml) 自动打包 **x86 与 ARM 双架构**：
 
 | 触发方式 | 行为 |
 | :--- | :--- |
-| **推送 tag**（如 `v0.1.14`） | 自动构建 → 校验 → 上传 artifact → **发布 Release** |
-| **手动触发**（Actions → Run workflow） | 可指定上游版本与架构，构建后上传 artifact |
+| **推送 tag**（如 `v0.1.14`） | 构建 x86 + arm → 校验 → 上传 artifact → **发布 Release** |
+| **手动触发**（Actions → Run workflow） | 可选目标架构（all / x86 / arm）与上游版本 |
 
 CI 流程：
 
-1. 安装 Bun + fnpack
-2. 运行 `scripts/build.sh --from-source`（拉官方源码 + 打补丁 + 构建 + 打包）
-3. **产物校验**：检查包内 `manifest`、`wizard/install`、`LICENSE`、`bin/mimo`、`bin/ttyd`，并校验版本号一致
-4. 上传 artifact（保留 30 天）
-5. tag 触发时自动创建 Release 并附上 `.fpk` 与 `SHA256SUMS`
+1. **矩阵构建**：`x86` 用 `ubuntu-24.04`，`arm` 用原生 `ubuntu-24.04-arm`（避免交叉编译）
+2. **安装 fnpack**：从飞牛官方源下载并校验 SHA256
+   ```
+   https://static2.fnnas.com/fnpack/fnpack-1.2.1-linux-{amd64,arm64}
+   ```
+3. **构建引擎**：拉官方源码 → 打适配补丁 → `bun install` → 构建对应架构二进制 → 下载对应 ttyd
+4. **设置 platform**：动态写入 `manifest` 的 `platform`（x86 / arm）
+5. **打包**：清理符号链接后 `fnpack build`
+6. **产物校验**（任一失败即中断）：
+   - 包结构：`manifest`、`wizard/install`、`LICENSE`
+   - 二进制：`bin/mimo`、`bin/ttyd`
+   - 生命周期：`cmd/` 下 10 个脚本齐全且 `bash -n` 通过
+   - 无硬编码卷路径（`/vol4`）
+   - `platform` 字段合法（空值 = manifest 用了错误的 `arch` 字段）
+   - ELF 架构匹配（`e_machine` = `0x003e` x86_64 / `0x00b7` arm64）
+   - 版本号与 `VERSION` 一致
+7. **发布**：Release 已存在则不覆盖（保护手工维护的 notes），仅追加
 
-发布新版本：
+### 发布新版本
 
 ```bash
 bash scripts/sync-version.sh 0.1.15   # 更新版本号
 git commit -am "release: v0.1.15"
 git tag v0.1.15
-git push origin master --tags          # CI 自动构建并发 Release
+git push origin master --tags          # CI 自动构建双架构并发 Release
+```
+
+### 产物命名
+
+```
+mimocode-tui-0.1.15-x86.fpk
+mimocode-tui-0.1.15-arm.fpk
+SHA256SUMS-x86 / SHA256SUMS-arm
 ```
 
 ## 对上游的改动

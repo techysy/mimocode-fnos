@@ -16,13 +16,14 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FPK_DIR="/vol1/1000/fnOS App/fpk/mimocode"
 OLDFPK_DIR="/vol1/1000/fnOS App/fpk/oldfpk"
 UPSTREAM_VERSION="${UPSTREAM_VERSION:-$(tr -d '[:space:]' < "$ROOT/VERSION" 2>/dev/null || echo 0.1.14)}"
-ARCH="${ARCH:-x86_64}"
+ARCH="${ARCH:-x86}"
 
-# 与 manifest 中 arch 字段对应
+# ARCH 决定：上游构建目标目录 + manifest 的 platform 字段
+# 注意：fnOS 只接受 x86 / arm / loongarch / risc-v / all
 case "$ARCH" in
-    x86_64)  BIN_ARCH="linux-x64" ;;
-    arm64)   BIN_ARCH="linux-arm64" ;;
-    *) echo "ERROR: 不支持的架构 $ARCH" >&2; exit 1 ;;
+    x86|x86_64) BIN_ARCH="linux-x64";   PLATFORM="x86" ;;
+    arm|arm64)  BIN_ARCH="linux-arm64"; PLATFORM="arm" ;;
+    *) echo "ERROR: 不支持的架构 $ARCH（可选 x86 / arm）" >&2; exit 1 ;;
 esac
 
 # --- 可选：从源码全量构建引擎 ---
@@ -52,9 +53,9 @@ fi
 
 if [ ! -x "$ROOT/app/bin/ttyd" ]; then
     echo "ℹ️  ttyd 缺失，自动下载..."
-    case "$ARCH" in
-        x86_64) TTYD_URL="https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64" ;;
-        arm64)  TTYD_URL="https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.aarch64" ;;
+    case "$PLATFORM" in
+        x86) TTYD_URL="https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64" ;;
+        arm) TTYD_URL="https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.aarch64" ;;
     esac
     curl -fL -o "$ROOT/app/bin/ttyd" "$TTYD_URL"
     chmod +x "$ROOT/app/bin/ttyd"
@@ -62,11 +63,18 @@ if [ ! -x "$ROOT/app/bin/ttyd" ]; then
 fi
 chmod +x "$ROOT/app/bin/"* 2>/dev/null || true
 
-# --- 同步版本号 ---
+# --- 同步版本号与 platform ---
 bash "$ROOT/scripts/sync-version.sh"
+if grep -qE '^platform[[:space:]]*=' "$ROOT/manifest"; then
+    sed -i "s/^platform[[:space:]]*=.*/platform              = ${PLATFORM}/" "$ROOT/manifest"
+else
+    # 没有 platform 行则在 version 之后插入
+    sed -i "/^version/a platform              = ${PLATFORM}" "$ROOT/manifest"
+fi
+echo "✓ platform = ${PLATFORM}"
 
 # --- 打包确认 ---
-echo "📦 即将打包：mimocode-tui v${UPSTREAM_VERSION} (${ARCH})"
+echo "📦 即将打包：mimocode-tui v${UPSTREAM_VERSION} (${PLATFORM})"
 if [ "${BUILD_AUTO:-0}" != "1" ]; then
     read -r -p "确认打包? [y/N] " ans
     [[ "$ans" =~ ^[Yy]$ ]] || { echo "已取消"; exit 1; }
@@ -78,7 +86,7 @@ rm -f mimocode-tui.fpk
 fnpack build >/dev/null
 [ -f mimocode-tui.fpk ] || { echo "ERROR: 打包失败" >&2; exit 1; }
 
-OUT="mimocode-tui-${UPSTREAM_VERSION}-${ARCH}.fpk"
+OUT="mimocode-tui-${UPSTREAM_VERSION}-${PLATFORM}.fpk"
 mv mimocode-tui.fpk "$OUT"
 echo "✓ 构建完成：$OUT ($(du -h "$OUT" | cut -f1))"
 
