@@ -28,6 +28,14 @@
 - 🏷️ **修复页面标题被工作目录覆盖**：TUI 会持续上报窗口标题（`MiMoCode | /vol4/...`），ttyd 将其拼接进 `document.title`，导致标签页显示长路径。现固定为 `MiMo Code`，并加 `-t titleFixed=true` 双保险。
 - 📁 **修复工作目录问题**：原启动脚本未设置 cwd，飞牛以 `/` 启动时引擎报 `Access denied: filesystem root is not a valid project directory`。现显式 `cd` 到工作区（默认 `数据目录/workspace`，可用 `MIMOCODE_WORKSPACE` 覆盖）。
 
+### 🛡️ 健壮性
+
+- **路径推导不再写死卷**：新增 [`cmd/_lib.sh`](cmd/_lib.sh) 共用逻辑，优先用 `TRIM_PKGVAR`，否则从 home 软链或 `APP_DIR` 推导卷路径，兼容 `APP_DIR/bin` 与 `APP_DIR/target/bin` 两种部署布局（参考 10router 实践）。
+- **安装后自动拉起服务**：`install_callback` 主动 `start` —— 飞牛应用中心安装后不保证自启。
+- **升级自动重启**：`upgrade_callback` 先 stop 再 start，确保加载新二进制。
+- **卸载清理**：`uninstall_callback` 停止服务并清理 PID 文件。
+- **完整生命周期钩子**：补齐 `config_init` / `config_callback`，全部脚本通过 `bash -n` 语法校验。
+
 ### 🔧 对上游的最小适配
 
 仅对官方源码做必要适配，**引擎逻辑未改动**：
