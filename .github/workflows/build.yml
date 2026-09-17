@@ -54,7 +54,9 @@ jobs:
         env:
           FNPACK_VERSION: "1.2.1"
         run: |
-          set -euo pipefail
+          # 本步骤故意不用 set -o pipefail：下方读取 fnpack 输出时，
+          # 子进程可能收到 SIGPIPE(141)，pipefail 会将其误判为失败。
+          set -eu
           if [ "${{ matrix.arch }}" = "arm" ]; then
             FNPACK_BIN="fnpack-${FNPACK_VERSION}-linux-arm64"
             FNPACK_SHA256="aad9e16b101267d30017f39ab969e3c085fbce209716f8bd3b1e167eaf15e0cf"
@@ -65,7 +67,10 @@ jobs:
           curl -fsSL -o /usr/local/bin/fnpack "https://static2.fnnas.com/fnpack/${FNPACK_BIN}"
           echo "${FNPACK_SHA256}  /usr/local/bin/fnpack" | sha256sum -c -
           chmod +x /usr/local/bin/fnpack
-          fnpack --help | head -3
+          # 校验 fnpack 可执行：写入文件再取前几行，避免管道 SIGPIPE
+          fnpack --help > /tmp/fnpack-help.txt 2>&1 || true
+          sed -n '1,2p' /tmp/fnpack-help.txt
+          echo "fnpack 就绪"
 
       - name: 从源码构建引擎
         env:
