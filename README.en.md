@@ -236,7 +236,15 @@ This app provides **full shell execution** on port 19281, bound to `0.0.0.0` by 
 
 ## License Agreement
 
-The installer requires accepting 7 terms (non-official, copyright, warranty, risk, permissions, network, license). Defined in [`wizard/install`](wizard/install).
+The installer groups the terms into **three checkboxes**, each with the full text available in its tooltip:
+
+| Category | Covers |
+| :--- | :--- |
+| **1. Origin & Licensing** | Unofficial third-party port notice; engine copyright Xiaomi Corporation (MIT); original notices preserved |
+| **2. Risk & Warranty** | Provided "as is" with no warranty; risks borne by you (data loss, downtime, model costs, key leakage); requires NAS filesystem access and command execution as a dedicated user |
+| **3. Network & Exposure** | Listens on 19281 with terminal write access; intended for trusted networks only, do not expose publicly |
+
+Defined in [`wizard/install`](wizard/install) using the fnOS `checkbox` type with `required: true` — installation cannot proceed until all three are ticked.
 
 ## Disclaimer
 

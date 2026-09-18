@@ -4,44 +4,49 @@
     "items": [
       {
         "type": "tips",
-        "helpText": "请阅读以下条款。勾选「同意」后方可继续安装。"
+        "helpText": "条款按类别归为三项，请逐项阅读并勾选后继续安装。"
       },
       {
         "type": "checkbox",
-        "field": "wizard_agree_license",
-        "label": "我已阅读并同意以下全部条款",
+        "field": "wizard_agree_origin",
+        "label": "一、来源与授权",
+        "tip": "本应用是非官方的第三方适配项目，与小米公司（Xiaomi Corporation）无任何隶属、赞助或背书关系。MiMo Code 引擎版权归 Xiaomi Corporation 所有，遵循 MIT 开源协议；本项目仅做飞牛 NAS 平台的适配与打包，并保留小米的原始版权声明。本包同样以 MIT 协议发布，你可以自由使用、修改和分发。",
         "options": [
           {
-            "label": "非官方声明：本应用是非官方的第三方适配项目，与小米公司（Xiaomi Corporation）无任何隶属、赞助或背书关系。",
-            "value": "unofficial"
-          },
-          {
-            "label": "版权归属：MiMo Code 引擎版权归 Xiaomi Corporation 所有，遵循 MIT 开源协议；本项目仅做飞牛 NAS 平台适配与打包。",
-            "value": "copyright"
-          },
-          {
-            "label": "无担保声明：本应用按「现状」提供，不附带任何明示或暗示的担保，包括但不限于适销性、特定用途适用性及不侵权保证。",
-            "value": "warranty"
-          },
-          {
-            "label": "风险自担：使用本应用产生的风险由你自行承担，包括但不限于数据丢失、服务中断、模型调用费用及 API 密钥泄露。",
-            "value": "risk"
-          },
-          {
-            "label": "权限说明：本应用需要访问 NAS 文件系统并以独立用户身份执行命令，请自行评估安全影响并妥善保管 API 凭据。",
-            "value": "permission"
-          },
-          {
-            "label": "网络安全：本应用默认监听局域网端口 19281，建议仅在可信网络环境使用，请勿直接暴露到公网。",
-            "value": "network"
-          },
-          {
-            "label": "开源许可：本项目遵循 MIT 协议发布，保留小米原始版权声明；你可以自由使用、修改和分发。",
-            "value": "license"
+            "label": "我已知悉这是非官方第三方适配项目，引擎版权归小米所有（MIT 协议），本包保留原始版权声明",
+            "value": "origin"
           }
         ],
         "required": true,
-        "requiredMessage": "必须同意以上全部条款才能继续安装"
+        "requiredMessage": "必须确认「来源与授权」才能继续安装"
+      },
+      {
+        "type": "checkbox",
+        "field": "wizard_agree_risk",
+        "label": "二、风险与担保",
+        "tip": "本应用按「现状」提供，不附带任何明示或暗示的担保，包括但不限于适销性、特定用途适用性及不侵权保证。使用本应用产生的风险由你自行承担，包括但不限于数据丢失、服务中断、模型调用费用及 API 密钥泄露。本应用需要访问 NAS 文件系统并以独立用户身份执行命令，请自行评估安全影响并妥善保管 API 凭据。",
+        "options": [
+          {
+            "label": "我理解本应用无任何担保、风险由我自行承担，并会自行评估文件系统访问权限与妥善保管 API 凭据",
+            "value": "risk"
+          }
+        ],
+        "required": true,
+        "requiredMessage": "必须确认「风险与担保」才能继续安装"
+      },
+      {
+        "type": "checkbox",
+        "field": "wizard_agree_network",
+        "label": "三、网络与暴露",
+        "tip": "本应用默认监听局域网端口 19281，且默认允许终端写入（可直接在网页里操作终端）。建议仅在可信网络环境使用，请勿直接映射到公网。如需远程访问，建议经由飞牛 FN Connect 或自建 VPN，并自行增加访问控制。",
+        "options": [
+          {
+            "label": "我已知悉本应用默认监听 19281 且允许终端写入，仅会在可信网络中使用，不会直接暴露到公网",
+            "value": "network"
+          }
+        ],
+        "required": true,
+        "requiredMessage": "必须确认「网络与暴露」才能继续安装"
       }
     ]
   }
